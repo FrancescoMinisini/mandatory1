@@ -76,20 +76,11 @@ class Wave2D:
         ue_grid = ue_fun(self.xij, self.yij, t0)
         return np.sqrt(self.h**2 * np.sum((u - ue_grid)**2))
 
-    def apply_bcs(self):
-        F = self.f(self.xij, self.yij, self.t_cur)
-        B = np.ones((self.N+1, self.N+1), dtype=bool)
-        B[1:-1, 1:-1] = 0
-        bnds = np.where(B.ravel() == 1)[0]
-        u_bc = sp.lambdify((x, y, t), self.uem, "numpy")(self.xij, self.yij, self.t_cur)
-        A = self.laplace.tolil()
-        for i in bnds:
-            A[i, : ] = 0
-            A[i, i] = 1
-        b = F.ravel()
-        b[bnds] = 0.0
-        A = A.tocsr()
-        return A, b
+    def apply_bcs(self, u):
+        u[0, :] = 0
+        u[-1, :] = 0
+        u[:, 0] = 0
+        u[:, -1] = 0
 
     def __call__(self, N, Nt, cfl=0.5, c=1.0, mx=3, my=3, store_data=-1):
         """Solve the wave equation
@@ -135,10 +126,7 @@ class Wave2D:
         f_now = self.f(self.xij, self.yij, 0)
         rhs = self.c**2 * lap_u + f_now
         u_next = u_now + (dt2 / 2) * rhs
-        u_next[0, :] = 0
-        u_next[-1, :] = 0
-        u_next[:, 0] = 0
-        u_next[:, -1] = 0
+        self.apply_bcs(u_next)
         self.U.append(u_next.copy())
 
         u_prev = u_now.copy()
@@ -151,10 +139,7 @@ class Wave2D:
             f_now = self.f(self.xij, self.yij, self.t_cur)
             rhs = self.c**2 * lap_u + f_now
             u_next = 2 * u_now - u_prev + dt2 * rhs
-            u_next[0, :] = 0
-            u_next[-1, :] = 0
-            u_next[:, 0] = 0
-            u_next[:, -1] = 0
+            self.apply_bcs(u_next)
             self.U.append(u_next.copy())
             u_prev = u_now.copy()
             u_now = u_next.copy()
@@ -205,23 +190,26 @@ class Wave2D:
 class Wave2D_Neumann(Wave2D):
 
     def D2(self, N):
-        raise NotImplementedError
+        D = sparse.diags([1, -2, 1], [-1, 0, 1], (N+1, N+1), 'lil')
+        D[0,1] = 2
+        D[-1, -2] = 2
+        return D
 
     def ue(self, mx, my):
-        raise NotImplementedError
+        return sp.cos(mx*sp.pi*x)*sp.cos(my*sp.pi*y)*sp.cos(self.w*t)
 
-    def apply_bcs(self):
-        raise NotImplementedError
+    def apply_bcs(self, u):
+        pass
 
 def test_convergence_wave2d():
     sol = Wave2D()
     r, E, h = sol.convergence_rates(mx=2, my=3)
     assert abs(r[-1]-2) < 1e-2
 
-# def test_convergence_wave2d_neumann():
-#     solN = Wave2D_Neumann()
-#     r, E, h = solN.convergence_rates(mx=2, my=3)
-#     assert abs(r[-1]-2) < 0.05
+def test_convergence_wave2d_neumann():
+    solN = Wave2D_Neumann()
+    r, E, h = solN.convergence_rates(mx=2, my=3)
+    assert abs(r[-1]-2) < 0.05
 
 # def test_exact_wave2d():
 #     raise NotImplementedError
