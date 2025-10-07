@@ -22,15 +22,13 @@ class Wave2D:
 
     def D2(self, N):
         """Return second order differentiation matrix"""
-        D = sparse.diags([1, -2, 1], [-1, 0, 1], (self.N+1, self.N+1), 'lil')
-        D[0, :4] = 2, -5, 4, -1
-        D[-1, -4:] = -1, 4, -5, 2
+        D = sparse.diags([1, -2, 1], [-1, 0, 1], (N+1, N+1), 'lil')
         return D
 
     @property
     def w(self):
         """Return the dispersion coefficient"""
-        return self.c * np.sqrt(self.mx**2 + self.my**2)
+        return self.c * sp.pi * sp.sqrt(self.mx**2 + self.my**2)
 
     def ue(self, mx, my):
         """Return the exact standing wave"""
@@ -51,20 +49,13 @@ class Wave2D:
         self.my = my
         self.create_mesh(N)
         self.uem = self.ue(self.mx, self.my)
-        self.f = self.c**2 * (sp.diff(self.uem, x, 2) + sp.diff(self.uem, y, 2)) - sp.diff(self.uem, t, 2)
-
+        self.f_expr = sp.diff(self.uem, t, 2) - self.c**2 * (sp.diff(self.uem, x, 2) + sp.diff(self.uem, y, 2))
         self.h = 1./N
         D = self.D2(N)
-        D2XY = D / self.h**2
+        self.D2XY = D / self.h**2
         I = sparse.eye(self.N+1, format='csr')
-        laplace = (sparse.kron(D2XY, I, format='csr') + sparse.kron(I, D2XY, format='csr'))
-        D2T = D / self.dt**2
-
-        # D2T_big = sparse.eye((self.N+1)*(self.N+1), format='csr')
-        D2T_big = sparse.kron(I, D2T,format = 'csr')
-        self.A = self.c**2 * laplace - D2T_big 
-        # self.A = self.c**2 * laplace
- 
+        self.laplace = (sparse.kron(self.D2XY, I, format='csr') + sparse.kron(I, self.D2XY, format='csr'))
+        self.f = sp.lambdify((x, y, t), self.f_expr, "numpy")
 
     @property
     def dt(self):
@@ -86,21 +77,18 @@ class Wave2D:
         return np.sqrt(self.h**2 * np.sum((u - ue_grid)**2))
 
     def apply_bcs(self):
-        F = sp.lambdify((x, y, t), self.f, "numpy")(self.xij, self.yij, self.t_cur)
+        F = self.f(self.xij, self.yij, self.t_cur)
         B = np.ones((self.N+1, self.N+1), dtype=bool)
         B[1:-1, 1:-1] = 0
         bnds = np.where(B.ravel() == 1)[0]
         u_bc = sp.lambdify((x, y, t), self.uem, "numpy")(self.xij, self.yij, self.t_cur)
-        A = self.A.tolil()
+        A = self.laplace.tolil()
         for i in bnds:
             A[i, : ] = 0
             A[i, i] = 1
         b = F.ravel()
-        # b[bnds] = u_bc.ravel()[bnds]
         b[bnds] = 0.0
         A = A.tocsr()
-        self.A = A
-        self.b = b
         return A, b
 
     def __call__(self, N, Nt, cfl=0.5, c=1.0, mx=3, my=3, store_data=-1):
@@ -130,20 +118,53 @@ class Wave2D:
         """
         self.c = c
         self.cfl = cfl
-        self.initialize(N, mx,my)
-        self.U=[]
-        for n in range(Nt):
-            self.t_cur = n * self.dt
-            A , b = self.apply_bcs()
-            um = sparse.linalg.spsolve(A, b.flatten()).reshape((N+1, N+1))
-            self.U.append(um)
+        self.initialize(N, mx, my)
+        self.U = []
+        dt = self.dt
+        dt2 = dt**2
+
+        # Initial condition u^0
+        ue_fun = sp.lambdify((x, y, t), self.uem, "numpy")
+        ue0 = ue_fun(self.xij, self.yij, 0)
+        u_now = ue0.copy()
+        self.U.append(u_now.copy())
+
+        # Compute u^1 using second order starter
+        lap_u = self.laplace @ u_now.ravel()
+        lap_u = lap_u.reshape((N+1, N+1))
+        f_now = self.f(self.xij, self.yij, 0)
+        rhs = self.c**2 * lap_u + f_now
+        u_next = u_now + (dt2 / 2) * rhs
+        u_next[0, :] = 0
+        u_next[-1, :] = 0
+        u_next[:, 0] = 0
+        u_next[:, -1] = 0
+        self.U.append(u_next.copy())
+
+        u_prev = u_now.copy()
+        u_now = u_next.copy()
+
+        for n in range(1, Nt):
+            self.t_cur = n * dt
+            lap_u = self.laplace @ u_now.ravel()
+            lap_u = lap_u.reshape((N+1, N+1))
+            f_now = self.f(self.xij, self.yij, self.t_cur)
+            rhs = self.c**2 * lap_u + f_now
+            u_next = 2 * u_now - u_prev + dt2 * rhs
+            u_next[0, :] = 0
+            u_next[-1, :] = 0
+            u_next[:, 0] = 0
+            u_next[:, -1] = 0
+            self.U.append(u_next.copy())
+            u_prev = u_now.copy()
+            u_now = u_next.copy()
         
         if store_data == -1:
-            err = [self.l2_error(self.U[n], n*self.dt) for n in range(Nt)]
+            err = [self.l2_error(self.U[n], n*self.dt) for n in range(Nt+1)]
             return self.h, err
         elif store_data > 0:
             out = {}
-            for n in range(Nt):
+            for n in range(Nt+1):
                 out[n*self.dt] = self.U[n]
             return out
         else: raise RuntimeError("Invalid stored_data parameter")
@@ -172,13 +193,13 @@ class Wave2D:
         E = []
         h = []
         N0 = 8
-        for m in range(m):
+        for _ in range(m):
             dx, err = self(N0, Nt, cfl=cfl, mx=mx, my=my, store_data=-1)
             E.append(err[-1])
             h.append(dx)
             N0 *= 2
             Nt *= 2
-        r = [np.log(E[i-1]/E[i])/np.log(h[i-1]/h[i]) for i in range(1, m+1, 1)]
+        r = [np.log(E[i-1]/E[i])/np.log(h[i-1]/h[i]) for i in range(1, m, 1)]
         return r, np.array(E), np.array(h)
 
 class Wave2D_Neumann(Wave2D):
@@ -204,4 +225,3 @@ def test_convergence_wave2d():
 
 # def test_exact_wave2d():
 #     raise NotImplementedError
-
