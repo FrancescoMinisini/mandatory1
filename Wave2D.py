@@ -211,5 +211,13 @@ def test_convergence_wave2d_neumann():
     r, E, h = solN.convergence_rates(mx=2, my=3)
     assert abs(r[-1]-2) < 0.05
 
-# def test_exact_wave2d():
-#     raise NotImplementedError
+def test_exact_wave2d():
+    # Test for Dirichlet problem
+    sol_dir = Wave2D()
+    _, err_dir = sol_dir(64, 100, cfl=1/np.sqrt(2), c=1.0, mx=2, my=2, store_data=-1)
+    assert err_dir[-1] < 1e-12, f"Dirichlet l2-error: {err_dir[-1]}"
+
+    # Test for Neumann problem
+    sol_neum = Wave2D_Neumann()
+    _, err_neum = sol_neum(64, 100, cfl=1/np.sqrt(2), c=1.0, mx=2, my=2, store_data=-1)
+    assert err_neum[-1] < 1e-12, f"Neumann l2-error: {err_neum[-1]}"

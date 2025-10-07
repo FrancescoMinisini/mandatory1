@@ -68,30 +68,30 @@ def make_gif_from_data(xij, yij, data_dict, *, filename="report/neumannwave.gif"
     return filename
 
 if __name__ == "__main__":
-    N   = 60
-    Nt  = 600
-    cfl = .7/np.sqrt(2)
-    c   = 1.0
-    mx, my =1, 1
+    N = 60
+    Nt = 200
+    cfl = 1/np.sqrt(2)
+    c = 1.0
+    mx, my = 2, 2
 
-    solN = Wave2D()
+    solN = Wave2D_Neumann()
     data = solN(N=N, Nt=Nt, cfl=cfl, c=c, mx=mx, my=my, store_data=1)
 
     # Quick visual sanity check for one frame
     some_t = sorted(data.keys())[0]
     plot_solution_3d(solN.xij, solN.yij, data[some_t], kind="wireframe", stride=2)
-    plt.title(f"Wave2D – t={some_t:.3f}")
+    plt.title(f"Wave2D_Neumann – t={some_t:.3f}")
 
     # Make the GIF (wireframe + subsampling keeps the file tiny)
     out_path = make_gif_from_data(
         solN.xij, solN.yij, data,
-        filename="report/wave.gif",
+        filename="report/neumannwave.gif",
         kind="wireframe",
-        stride=3,      # fewer mesh lines -> smaller file
-        fps=10,         # modest fps
-        dpi=90,        # modest resolution
-        subsample=2,   # keep every 2nd frame
-        zclip=None     # auto symmetric z-limits
+        stride=3,
+        fps=10,
+        dpi=90,
+        subsample=2,
+        zclip=None
     )
     # plt.show()
     print("Saved:", out_path)
