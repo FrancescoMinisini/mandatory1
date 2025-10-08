@@ -69,7 +69,7 @@ def make_gif_from_data(xij, yij, data_dict, *, filename="report/neumannwave.gif"
 
 if __name__ == "__main__":
     N = 60
-    Nt = 80
+    Nt = 70
     cfl = 1/np.sqrt(2)
     c = 1.0
     mx, my = 2, 2
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         filename="report/neumannwave.gif",
         kind="wireframe",
         stride=3,
-        fps=9,
+        fps=8,
         dpi=90,
         subsample=2,
         zclip=None
